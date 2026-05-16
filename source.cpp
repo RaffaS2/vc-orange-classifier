@@ -66,7 +66,7 @@ int main(void)
         vc_hsv_segmentation(image_hsv, image_mask, 5, 35, 45, 100, 30, 100);
         //vc_hsv_segmentation(image_hsv, image_mask, 18, 30, 79, 100, 30, 100);
 
-        vc_binary_erosion(image_mask, image_tmp,  3);
+        vc_binary_erosion(image_mask, image_tmp,  5);
         vc_binary_dilation(image_tmp, image_mask, 3);   
 
         // Mostra a máscara binária (para debug)

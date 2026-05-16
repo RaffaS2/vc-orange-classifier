@@ -243,6 +243,8 @@ int vc_hsv_segmentation(IVC *src, IVC *dst, int hmin, int hmax, int smin, int sm
  * Um píxel só fica branco se todos os vizinhos dentro do
  * kernel também forem brancos.
  *
+ * remove o ruído branco pequeno (aumenta zonas brancas)
+ * 
  * @param src Imagem de entrada binária.
  * @param dst Imagem de saída binária.
  * @param kernel Raio do kernel quadrado.
@@ -299,6 +301,8 @@ int vc_binary_erosion(IVC *src, IVC *dst, int kernel)
  * Um píxel fica branco se pelo menos um vizinho dentro do
  * kernel for branco.
  *
+ * (fecha os buracos pretos)
+ * 
  * @param src Imagem de entrada binária.
  * @param dst Imagem de saída binária.
  * @param kernel Raio do kernel quadrado.
