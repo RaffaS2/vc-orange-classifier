@@ -4,146 +4,95 @@
 #include <opencv2/core.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/videoio.hpp>
+#include "functions.h"
+//g++ source2.cpp -o programa $(pkg-config --cflags --libs opencv4)
 
-extern "C" {
-#include "vc.h"
 
-IVC *vc_image_new(int width, int height, int channels, int levels)
+int main(void)
 {
-	IVC *image = (IVC *) malloc(sizeof(IVC));
+    char videofile[20] = "video.avi";
+    cv::VideoCapture capture;
+    struct {
+        int width, height;
+        int ntotalframes;
+        int fps;
+        int nframe;
+    } video;
 
-	if(image == NULL) return NULL;
-	if((levels <= 0) || (levels > 255)) return NULL;
+    std::string str;
+    int key = 0;
 
-	image->width = width;
-	image->height = height;
-	image->channels = channels;
-	image->levels = levels;
-	image->bytesperline = image->width * image->channels;
-	image->data = (unsigned char *) malloc(image->width * image->height * image->channels * sizeof(char));
-
-	if(image->data == NULL)
-	{
-		return vc_image_free(image);
-	}
-
-	return image;
-}
-
-// Libertar mem�ria de uma imagem
-IVC *vc_image_free(IVC *image)
-{
-	if(image != NULL)
-	{
-		if(image->data != NULL)
-		{
-			free(image->data);
-			image->data = NULL;
-		}
-
-		free(image);
-		image = NULL;
-	}
-
-	return image;
-}
-int vc_image_diff(IVC *current, IVC *prev, IVC *diff){
-
-	// Verificação de erros
-    if(current == NULL || prev == NULL || diff == NULL) return 0;
-	if(current->width  != prev->width  || current->width  != diff->width)  return 0;
-    if(current->height != prev->height || current->height != diff->height) return 0;
-    if(current->channels != prev->channels) return 0;
-    
-	int size = current->width * current->height * current->channels;
-
-    for (int i = 0; i < size; i++) {
-        // Diferença absoluta por canal
-        int d = (int)current->data[i] - (int)prev->data[i];
-        diff->data[i] = (unsigned char)abs(d);
+    // O ficheiro video.avi deverá estar localizado no mesmo directório que o ficheiro de código fonte.
+    capture.open(videofile);
+    if (!capture.isOpened()) {
+        std::cerr << "Erro ao abrir o ficheiro de vídeo!\n";
+        return 1;
     }
 
-    return 1;
-}
+    // Número total de frames no vídeo 
+    video.ntotalframes = (int)capture.get(cv::CAP_PROP_FRAME_COUNT);
+    // Frame rate do vídeo 
+    video.fps          = (int)capture.get(cv::CAP_PROP_FPS);
+    // Resolução do vídeo 
+    video.width        = (int)capture.get(cv::CAP_PROP_FRAME_WIDTH);
+    video.height       = (int)capture.get(cv::CAP_PROP_FRAME_HEIGHT);
 
-}
+    cv::namedWindow("VC - ORIGINAL",   cv::WINDOW_AUTOSIZE);
+    cv::namedWindow("VC - MASCARA", cv::WINDOW_AUTOSIZE); // debug
 
-int main(void) {
-	// V�deo
-	char videofile[20] = "video.avi";
-	cv::VideoCapture capture;
-	struct
-	{
-		int width, height;
-		int ntotalframes;
-		int fps;
-		int nframe;
-	} video;
-	// Outros
-	std::string str;
-	int key = 0;
+    // Aloca imagens IVC uma única vez, fora do loop 
+    IVC *image_bgr  = vc_image_new(video.width, video.height, 3, 255);
+    IVC *image_hsv  = vc_image_new(video.width, video.height, 3, 255);
+    IVC *image_mask = vc_image_new(video.width, video.height, 1, 255);
+    IVC *image_tmp  = vc_image_new(video.width, video.height, 1, 255);
+    cv::Mat frame;
+    while (key != 'q')
+    {   
+        // Leitura de uma frame do vídeo
+        capture.read(frame);
+        if (frame.empty()) break;
 
-	/* Leitura de v�deo de um ficheiro */
-	/* NOTA IMPORTANTE:
-	O ficheiro video.avi dever� estar localizado no mesmo direct�rio que o ficheiro de c�digo fonte.
-	*/
-	capture.open(videofile);
-	
-	/* Em alternativa, abrir captura de v�deo pela Webcam #0 */
-	//capture.open(0, cv::CAP_DSHOW); // Pode-se utilizar apenas capture.open(0);
-	
-	/* Verifica se foi poss�vel abrir o ficheiro de v�deo */
-	if (!capture.isOpened())
-	{
-		std::cerr << "Erro ao abrir o ficheiro de v�deo!\n";
-		return 1;
-	}	
+        /* Número da frame a processar */
+        video.nframe = (int)capture.get(cv::CAP_PROP_POS_FRAMES);
 
-	/* N�mero total de frames no v�deo */
-	video.ntotalframes = (int)capture.get(cv::CAP_PROP_FRAME_COUNT);
-	/* Frame rate do v�deo */
-	video.fps = (int)capture.get(cv::CAP_PROP_FPS);
-	/* Resolu��o do v�deo */
-	video.width = (int)capture.get(cv::CAP_PROP_FRAME_WIDTH);
-	video.height = (int)capture.get(cv::CAP_PROP_FRAME_HEIGHT);
+        // Copiar o frame BGR do OpenCV para a estrutura IVC
+        memcpy(image_bgr->data, frame.data, video.width * video.height * 3);
 
-	/* Cria uma janela para exibir o v�deo */
-	cv::namedWindow("VC - VIDEO", cv::WINDOW_AUTOSIZE);
-	
-	
-	IVC *imageCurrent = vc_image_new(video.width, video.height, 3, 255);
-	IVC *imagePrev = vc_image_new(video.width, video.height, 3, 255);
-	IVC *imageDiff = vc_image_new(video.width, video.height, 3, 255);
+        // Converte BGR -> HSV (separa a cor do brilho)
+        vc_bgr_to_hsv(image_bgr, image_hsv);
 
-	cv::Mat frame;
-while (key != 'q') {
-    capture.read(frame);
-    if (frame.empty()) break;
+        // Segmentação: isola píxeis com cor de laranja
+        // H[5°,35°]  S[45%,100%]  V[30%,100%]
+        vc_hsv_segmentation(image_hsv, image_mask, 5, 35, 45, 100, 30, 100);
+        //vc_hsv_segmentation(image_hsv, image_mask, 18, 30, 79, 100, 30, 100);
 
-    // Copia frame atual → imageCurrent
-    memcpy(imageCurrent->data, frame.data, video.width * video.height * 3);
+        vc_binary_erosion(image_mask, image_tmp,  3);
+        vc_binary_dilation(image_tmp, image_mask, 3);   
 
-    // Compara atual com anterior → resultado em imageDiff
-    vc_image_diff(imageCurrent, imagePrev, imageDiff);
+        // Mostra a máscara binária (para debug)
+        cv::Mat mask_mat(video.height, video.width, CV_8UC1, image_mask->data);
+        cv::imshow("VC - MASCARA", mask_mat);
 
-    // Copia resultado de volta para exibir com OpenCV
-    memcpy(frame.data, imageDiff->data, video.width * video.height * 3);
+        // HUD — informação básica sobre o vídeo
+        str = "Frame: " + std::to_string(video.nframe) + "/" +
+              std::to_string(video.ntotalframes);
+        cv::putText(frame, str, cv::Point(20, 30),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 0, 0), 2);
+        cv::putText(frame, str, cv::Point(20, 30),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 255), 1);
 
-    // Guarda atual como anterior para próxima iteração
-    memcpy(imagePrev->data, imageCurrent->data, video.width * video.height * 3);
+        cv::imshow("VC - ORIGINAL", frame);
+        key = cv::waitKey(1000 / video.fps);
+    }
 
-    cv::imshow("VC - VIDEO", frame);
-    key = cv::waitKey(1);
-}
+    // libertar memória
+    vc_image_free(image_bgr);
+    vc_image_free(image_hsv);
+    vc_image_free(image_mask);
 
-vc_image_free(imageCurrent);
-vc_image_free(imagePrev);
-vc_image_free(imageDiff);
-	/* Fecha a janela */
-	cv::destroyWindow("VC - VIDEO");
-
-	/* Fecha o ficheiro de v�deo */
-	capture.release();
-
-	return 0;
+    // Fecha a janela 
+    cv::destroyAllWindows();
+    //Fecha o ficheiro de vídeo 
+    capture.release();
+    return 0;
 }

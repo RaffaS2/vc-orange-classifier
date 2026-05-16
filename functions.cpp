@@ -1,21 +1,14 @@
 #include <iostream>
 #include <string>
-#include <opencv2/opencv.hpp>
-#include <opencv2/core.hpp>
-#include <opencv2/highgui.hpp>
-#include <opencv2/videoio.hpp>
+#include <stdlib.h>
+#include "functions.h"
 
-//g++ source2.cpp -o programa $(pkg-config --cflags --libs opencv4)
-
-extern "C" {
-#include "vc.h"
-}
 
 IVC *vc_image_new(int width, int height, int channels, int levels)
 {
 	IVC *image = (IVC *) malloc(sizeof(IVC));
 
-	if(image == NULL) return NULL;
+	if(image == NULL) return NULL; 
 	if((levels <= 0) || (levels > 255)) return NULL;
 
 	image->width = width;
@@ -75,10 +68,10 @@ IVC *vc_image_free(IVC *image)
  */
 int vc_bgr_to_hsv(IVC *src, IVC *dst)
 {
-    unsigned char *datasrc = (unsigned char *)src->data; // ← ponteiro, não valor!
+    unsigned char *datasrc = (unsigned char *)src->data;
     int bytesperline_src = src->width * src->channels;
     int channels_src = src->channels;
-    unsigned char *datadst = (unsigned char *)dst->data; // ← ponteiro, não valor!
+    unsigned char *datadst = (unsigned char *)dst->data;
     int bytesperline_dst = dst->width * dst->channels;
     int channels_dst = dst->channels;
     int width = src->width;
@@ -102,7 +95,7 @@ int vc_bgr_to_hsv(IVC *src, IVC *dst)
             pos_src = y * bytesperline_src + x * channels_src;
             pos_dst = y * bytesperline_dst + x * channels_dst;
 
-            // OpenCV armazena em BGR → índices invertidos face ao RGB
+            // OpenCV armazena em BGR índices invertidos face ao RGB
             b = (float)datasrc[pos_src + 0] / 255.0f;
             g = (float)datasrc[pos_src + 1] / 255.0f;
             r = (float)datasrc[pos_src + 2] / 255.0f;
@@ -150,8 +143,8 @@ int vc_bgr_to_hsv(IVC *src, IVC *dst)
  * Percorre cada píxel da imagem HSV e verifica se os seus valores de
  * H, S e V se encontram dentro dos intervalos definidos. O resultado
  * é uma imagem binária onde:
- *   - 255 → píxel pertence à cor segmentada (laranja)
- *   -   0 → píxel pertence ao fundo
+ *   - 255 -> píxel pertence à cor segmentada (laranja)
+ *   -   0 -> píxel pertence ao fundo
  *
  * O canal H é tratado como circular (0° = 360°), pelo que intervalos
  * que cruzem o 0° (ex: hmin=350, hmax=10) são suportados via OR.
@@ -231,85 +224,124 @@ int vc_hsv_segmentation(IVC *src, IVC *dst, int hmin, int hmax, int smin, int sm
             in_v = (v >= vmin_255 && v <= vmax_255);
 
             datadst[pos_dst] = (in_h && in_s && in_v) ? 255 : 0;
+
+            if (in_h && in_s && in_v){
+                datadst[pos_dst] = 255;  // branco
+            }else{
+                datadst[pos_dst] = 0;    // preto
+            }
         }
     }
 
     return 1;
 }
 
-int main(void)
+/**
+ * @brief Aplica erosão binária numa imagem.
+ *
+ * Remove píxeis brancos isolados e reduz objetos brancos.
+ * Um píxel só fica branco se todos os vizinhos dentro do
+ * kernel também forem brancos.
+ *
+ * @param src Imagem de entrada binária.
+ * @param dst Imagem de saída binária.
+ * @param kernel Raio do kernel quadrado.
+ *
+ * @return 1 em caso de sucesso, 0 em caso de erro.
+ */
+int vc_binary_erosion(IVC *src, IVC *dst, int kernel)
 {
-    char videofile[20] = "video.avi";
-    cv::VideoCapture capture;
-    struct {
-        int width, height;
-        int ntotalframes;
-        int fps;
-        int nframe;
-    } video;
+    unsigned char *datasrc = (unsigned char *)src->data;
+    unsigned char *datadst = (unsigned char *)dst->data;
+    int width    = src->width;
+    int height   = src->height;
+    int bpl      = src->bytesperline;
+    int x, y, kx, ky;
+    int all_white;
+    long int pos_dst;
 
-    std::string str;
-    int key = 0;
+    if (src->channels != 1 || dst->channels != 1) return 0;
+    if (src->width != dst->width || src->height != dst->height) return 0;
 
-    capture.open(videofile);
-    if (!capture.isOpened()) {
-        std::cerr << "Erro ao abrir o ficheiro de vídeo!\n";
-        return 1;
-    }
-
-    video.ntotalframes = (int)capture.get(cv::CAP_PROP_FRAME_COUNT);
-    video.fps          = (int)capture.get(cv::CAP_PROP_FPS);
-    video.width        = (int)capture.get(cv::CAP_PROP_FRAME_WIDTH);
-    video.height       = (int)capture.get(cv::CAP_PROP_FRAME_HEIGHT);
-
-    cv::namedWindow("VC - ORIGINAL",   cv::WINDOW_AUTOSIZE);
-    cv::namedWindow("VC - MASCARA", cv::WINDOW_AUTOSIZE); // debug
-
-    // --- Aloca imagens IVC uma única vez, fora do loop ---
-    IVC *image_bgr  = vc_image_new(video.width, video.height, 3, 255);
-    IVC *image_hsv  = vc_image_new(video.width, video.height, 3, 255);
-    IVC *image_mask = vc_image_new(video.width, video.height, 1, 255);
-
-    cv::Mat frame;
-    while (key != 'q')
+    for (y = 0; y < height; y++)
     {
-        capture.read(frame);
-        if (frame.empty()) break;
+        for (x = 0; x < width; x++)
+        {
+            pos_dst = y * bpl + x;
+            all_white = 1;
 
-        video.nframe = (int)capture.get(cv::CAP_PROP_POS_FRAMES);
+            // Verifica todos os vizinhos dentro do kernel
+            for (ky = -kernel; ky <= kernel && all_white; ky++)
+            {
+                for (kx = -kernel; kx <= kernel && all_white; kx++)
+                {
+                    int nx = x + kx;
+                    int ny = y + ky;
 
-        // 1. Copia o frame BGR do OpenCV para a nossa estrutura IVC
-        memcpy(image_bgr->data, frame.data, video.width * video.height * 3);
+                    // Fora dos limites → trata como preto (fundo)
+                    if (nx < 0 || nx >= width || ny < 0 || ny >= height)
+                        all_white = 0;
+                    else if (datasrc[ny * bpl + nx] == 0)
+                        all_white = 0;
+                }
+            }
 
-        // 2. Converte BGR → HSV (separa a cor do brilho)
-        vc_bgr_to_hsv(image_bgr, image_hsv);
-
-        // 3. Segmenta: isola píxeis com cor de laranja
-        //    H[5°,35°]  S[45%,100%]  V[30%,100%]  — ajusta se necessário
-        vc_hsv_segmentation(image_hsv, image_mask, 5, 35, 45, 100, 30, 100);
-
-        // 4. Mostra a máscara binária para debug
-        cv::Mat mask_mat(video.height, video.width, CV_8UC1, image_mask->data);
-        cv::imshow("VC - MASCARA", mask_mat);
-
-        // 5. HUD — informação básica sobre o vídeo
-        str = "Frame: " + std::to_string(video.nframe) + "/" +
-              std::to_string(video.ntotalframes);
-        cv::putText(frame, str, cv::Point(20, 30),
-                    cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 0, 0), 2);
-        cv::putText(frame, str, cv::Point(20, 30),
-                    cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 255), 1);
-
-        cv::imshow("VC - VIDEO", frame);
-        key = cv::waitKey(1000 / video.fps);
+            datadst[pos_dst] = all_white ? 255 : 0;
+        }
     }
+    return 1;
+}
 
-    // --- Liberta memória ---
-    vc_image_free(image_bgr);
-    vc_image_free(image_hsv);
-    vc_image_free(image_mask);
+/**
+ * @brief Aplica dilatação binária numa imagem.
+ *
+ * Expande os objetos brancos e preenche pequenos buracos.
+ * Um píxel fica branco se pelo menos um vizinho dentro do
+ * kernel for branco.
+ *
+ * @param src Imagem de entrada binária.
+ * @param dst Imagem de saída binária.
+ * @param kernel Raio do kernel quadrado.
+ *
+ * @return 1 em caso de sucesso, 0 em caso de erro.
+ */
+int vc_binary_dilation(IVC *src, IVC *dst, int kernel)
+{
+    unsigned char *datasrc = (unsigned char *)src->data;
+    unsigned char *datadst = (unsigned char *)dst->data;
+    int width    = src->width;
+    int height   = src->height;
+    int bpl      = src->bytesperline;
+    int x, y, kx, ky;
+    int any_white;
+    long int pos_dst;
 
-    cv::destroyAllWindows();
-    capture.release();
-    return 0;
+    if (src->channels != 1 || dst->channels != 1) return 0;
+    if (src->width != dst->width || src->height != dst->height) return 0;
+
+    for (y = 0; y < height; y++)
+    {
+        for (x = 0; x < width; x++)
+        {
+            pos_dst = y * bpl + x;
+            any_white = 0;
+
+            // Fica branco se qualquer vizinho for branco
+            for (ky = -kernel; ky <= kernel && !any_white; ky++)
+            {
+                for (kx = -kernel; kx <= kernel && !any_white; kx++)
+                {
+                    int nx = x + kx;
+                    int ny = y + ky;
+
+                    if (nx >= 0 && nx < width && ny >= 0 && ny < height)
+                        if (datasrc[ny * bpl + nx] == 255)
+                            any_white = 1;
+                }
+            }
+
+            datadst[pos_dst] = any_white ? 255 : 0;
+        }
+    }
+    return 1;
 }
