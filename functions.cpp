@@ -1,5 +1,6 @@
 #include <iostream>
 #include <string>
+#include <cstring>
 #include <stdlib.h>
 #include "functions.h"
 
@@ -149,10 +150,6 @@ int vc_bgr_to_hsv(IVC *src, IVC *dst)
  * O canal H é tratado como circular (0° = 360°), pelo que intervalos
  * que cruzem o 0° (ex: hmin=350, hmax=10) são suportados via OR.
  *
- * Valores sugeridos para laranjas:
- *   - H: [5°,  35°]
- *   - S: [45%, 100%]
- *   - V: [30%, 100%]
  *
  * @param src  Imagem de entrada em HSV (3 canais).
  * @param dst  Imagem de saída binária  (1 canal).
@@ -162,7 +159,7 @@ int vc_bgr_to_hsv(IVC *src, IVC *dst)
  * @param smax Limite superior de Saturation [0, 100] em percentagem.
  * @param vmin Limite inferior de Value      [0, 100] em percentagem.
  * @param vmax Limite superior de Value      [0, 100] em percentagem.
- * @return     1 em caso de sucesso, 0 em caso de erro.
+ * @return 1 em caso de sucesso, 0 em caso de erro.
  */
 int vc_hsv_segmentation(IVC *src, IVC *dst, int hmin, int hmax, int smin, int smax, int vmin, int vmax)
 {
@@ -243,8 +240,6 @@ int vc_hsv_segmentation(IVC *src, IVC *dst, int hmin, int hmax, int smin, int sm
  * Um píxel só fica branco se todos os vizinhos dentro do
  * kernel também forem brancos.
  *
- * remove o ruído branco pequeno (aumenta zonas brancas)
- * 
  * @param src Imagem de entrada binária.
  * @param dst Imagem de saída binária.
  * @param kernel Raio do kernel quadrado.
@@ -301,8 +296,6 @@ int vc_binary_erosion(IVC *src, IVC *dst, int kernel)
  * Um píxel fica branco se pelo menos um vizinho dentro do
  * kernel for branco.
  *
- * (fecha os buracos pretos)
- * 
  * @param src Imagem de entrada binária.
  * @param dst Imagem de saída binária.
  * @param kernel Raio do kernel quadrado.
@@ -348,4 +341,356 @@ int vc_binary_dilation(IVC *src, IVC *dst, int kernel)
         }
     }
     return 1;
+}
+
+/**
+ * @brief Realiza a etiquetagem de blobs numa imagem binária.
+ *
+ * Processa uma imagem binária de entrada e identifica regiões conectadas (blobs),
+ * atribuindo-lhes etiquetas únicas numa imagem de saída em escala de cinzentos.
+ *
+ * @param src Imagem binária de entrada.
+ * @param dst Imagem em escala de cinzentos onde serão armazenadas as etiquetas.
+ * @param nlabels Apontador para uma variável inteira onde será armazenado o número de blobs encontrados.
+ *
+ * @return Array dinâmico de blobs (OVC). Deve ser libertado pelo utilizador.
+ */
+OVC* vc_binary_blob_labelling(IVC *src, IVC *dst, int *nlabels)
+{
+	unsigned char *datasrc = (unsigned char *)src->data;
+	unsigned char *datadst = (unsigned char *)dst->data;
+	int width = src->width;
+	int height = src->height;
+	int bytesperline = src->bytesperline;
+	int channels = src->channels;
+	int x, y, a, b;
+	long int i, size;
+	long int posX, posA, posB, posC, posD;
+	int labeltable[256] = { 0 };
+	int labelarea[256] = { 0 };
+	int label = 1; // Etiqueta inicial.
+	int num, tmplabel;
+	OVC *blobs; // Apontador para array de blobs (objectos) que será retornado desta função.
+
+	// Verificaçãoo de erros
+	if ((src->width <= 0) || (src->height <= 0) || (src->data == NULL)) return 0;
+	if ((src->width != dst->width) || (src->height != dst->height) || (src->channels != dst->channels)) return NULL;
+	if (channels != 1) return NULL;
+
+	// Copia dados da imagem binária para imagem grayscale
+	memcpy(datadst, datasrc, bytesperline * height);
+
+	// Todos os pixeis de plano de fundo devem obrigatóriamente ter valor 0
+	// Todos os pixeis de primeiro plano devem obrigatóriamente ter valor 255
+	// Serão atribuídas etiquetas no intervalo [1,254]
+	// Este algoritmo está assim limitado a 254 labels
+	for (i = 0, size = bytesperline * height; i<size; i++)
+	{
+		if (datadst[i] != 0) datadst[i] = 255;
+	}
+
+	// Limpa os rebordos da imagem binária
+	for (y = 0; y<height; y++)
+	{
+		datadst[y * bytesperline + 0 * channels] = 0;
+		datadst[y * bytesperline + (width - 1) * channels] = 0;
+	}
+	for (x = 0; x<width; x++)
+	{
+		datadst[0 * bytesperline + x * channels] = 0;
+		datadst[(height - 1) * bytesperline + x * channels] = 0;
+	}
+
+	// Efectua a etiquetagem
+	for (y = 1; y<height - 1; y++)
+	{
+		for (x = 1; x<width - 1; x++)
+		{
+			// Kernel:
+			// A B C
+			// D X
+
+			posA = (y - 1) * bytesperline + (x - 1) * channels; // A
+			posB = (y - 1) * bytesperline + x * channels; // B
+			posC = (y - 1) * bytesperline + (x + 1) * channels; // C
+			posD = y * bytesperline + (x - 1) * channels; // D
+			posX = y * bytesperline + x * channels; // X
+
+			// Se o pixel foi marcado
+			if (datadst[posX] != 0)
+			{
+				if ((datadst[posA] == 0) && (datadst[posB] == 0) && (datadst[posC] == 0) && (datadst[posD] == 0))
+				{
+					datadst[posX] = label;
+					labeltable[label] = label;
+					label++;
+				}
+				else
+				{
+					num = 255;
+
+					// Se A está marcado
+					if (datadst[posA] != 0) num = labeltable[datadst[posA]];
+					// Se B está marcado, e é menor que a etiqueta "num"
+					if ((datadst[posB] != 0) && (labeltable[datadst[posB]] < num)) num = labeltable[datadst[posB]];
+					// Se C está marcado, e é menor que a etiqueta "num"
+					if ((datadst[posC] != 0) && (labeltable[datadst[posC]] < num)) num = labeltable[datadst[posC]];
+					// Se D está marcado, e é menor que a etiqueta "num"
+					if ((datadst[posD] != 0) && (labeltable[datadst[posD]] < num)) num = labeltable[datadst[posD]];
+
+					// Atribui a etiqueta ao pixel
+					datadst[posX] = num;
+					labeltable[num] = num;
+
+					// Actualiza a tabela de etiquetas
+					if (datadst[posA] != 0)
+					{
+						if (labeltable[datadst[posA]] != num)
+						{
+							for (tmplabel = labeltable[datadst[posA]], a = 1; a<label; a++)
+							{
+								if (labeltable[a] == tmplabel)
+								{
+									labeltable[a] = num;
+								}
+							}
+						}
+					}
+					if (datadst[posB] != 0)
+					{
+						if (labeltable[datadst[posB]] != num)
+						{
+							for (tmplabel = labeltable[datadst[posB]], a = 1; a<label; a++)
+							{
+								if (labeltable[a] == tmplabel)
+								{
+									labeltable[a] = num;
+								}
+							}
+						}
+					}
+					if (datadst[posC] != 0)
+					{
+						if (labeltable[datadst[posC]] != num)
+						{
+							for (tmplabel = labeltable[datadst[posC]], a = 1; a<label; a++)
+							{
+								if (labeltable[a] == tmplabel)
+								{
+									labeltable[a] = num;
+								}
+							}
+						}
+					}
+					if (datadst[posD] != 0)
+					{
+						if (labeltable[datadst[posD]] != num)
+						{
+							for (tmplabel = labeltable[datadst[posD]], a = 1; a<label; a++)
+							{
+								if (labeltable[a] == tmplabel)
+								{
+									labeltable[a] = num;
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Volta a etiquetar a imagem
+	for (y = 1; y<height - 1; y++)
+	{
+		for (x = 1; x<width - 1; x++)
+		{
+			posX = y * bytesperline + x * channels; // X
+
+			if (datadst[posX] != 0)
+			{
+				datadst[posX] = labeltable[datadst[posX]];
+			}
+		}
+	}
+
+	//printf("\nMax Label = %d\n", label);
+
+	// Contagem do número de blobs
+	// Passo 1: Eliminar, da tabela, etiquetas repetidas
+	for (a = 1; a<label - 1; a++)
+	{
+		for (b = a + 1; b<label; b++)
+		{
+			if (labeltable[a] == labeltable[b]) labeltable[b] = 0;
+		}
+	}
+	// Passo 2: Conta etiquetas e organiza a tabela de etiquetas, para que não hajam valores vazios (zero) entre etiquetas
+	*nlabels = 0;
+	for (a = 1; a<label; a++)
+	{
+		if (labeltable[a] != 0)
+		{
+			labeltable[*nlabels] = labeltable[a]; // Organiza tabela de etiquetas
+			(*nlabels)++; // Conta etiquetas
+		}
+	}
+
+	// Se não há blobs
+	if (*nlabels == 0) return NULL;
+
+	// Cria lista de blobs (objectos) e preenche a etiqueta
+	blobs = (OVC *)calloc((*nlabels), sizeof(OVC));
+	if (blobs != NULL)
+	{
+		for (a = 0; a<(*nlabels); a++) blobs[a].label = labeltable[a];
+	}
+	else return NULL;
+
+	return blobs;
+}
+
+/**
+ * @brief Calcula informação geométrica de blobs numa imagem etiquetada.
+ *
+ * Percorre uma imagem etiquetada e calcula propriedades como área,
+ * perímetro, bounding box e centro de gravidade para cada blob.
+ *
+ * @param src Imagem de entrada com blobs etiquetados.
+ * @param blobs Array de estruturas OVC já com as labels atribuídas.
+ * @param nblobs Número de blobs a processar.
+ *
+ * @return 1 em caso de sucesso, 0 em caso de erro.
+ */
+int vc_binary_blob_info(IVC *src, OVC *blobs, int nblobs);
+int vc_binary_blob_info(IVC *src, OVC *blobs, int nblobs)
+{
+	unsigned char *data = (unsigned char *)src->data;
+	int width = src->width;
+	int height = src->height;
+	int bytesperline = src->bytesperline;
+	int channels = src->channels;
+	int x, y, i;
+	long int pos;
+	int xmin, ymin, xmax, ymax;
+	long int sumx, sumy;
+
+	// Verificação de erros
+	if ((src->width <= 0) || (src->height <= 0) || (src->data == NULL)) return 0;
+	if (channels != 1) return 0;
+
+	// Conta área de cada blob
+	for (i = 0; i<nblobs; i++)
+	{
+		xmin = width - 1;
+		ymin = height - 1;
+		xmax = 0;
+		ymax = 0;
+
+		sumx = 0;
+		sumy = 0;
+
+		blobs[i].area = 0;
+
+		for (y = 1; y<height - 1; y++)
+		{
+			for (x = 1; x<width - 1; x++)
+			{
+				pos = y * bytesperline + x * channels;
+
+				if (data[pos] == blobs[i].label)
+				{
+					// Área
+					blobs[i].area++;
+
+					// Centro de Gravidade
+					sumx += x;
+					sumy += y;
+
+					// Bounding Box
+					if (xmin > x) xmin = x;
+					if (ymin > y) ymin = y;
+					if (xmax < x) xmax = x;
+					if (ymax < y) ymax = y;
+
+					// Perímetro
+					// Se pelo menos um dos quatro vizinhos não pertence ao mesmo label, então é um pixel de contorno
+					if ((data[pos - 1] != blobs[i].label) || (data[pos + 1] != blobs[i].label) || (data[pos - bytesperline] != blobs[i].label) || (data[pos + bytesperline] != blobs[i].label))
+					{
+						blobs[i].perimeter++;
+					}
+				}
+			}
+		}
+
+		// Bounding Box
+		blobs[i].x = xmin;
+		blobs[i].y = ymin;
+		blobs[i].width = (xmax - xmin) + 1;
+		blobs[i].height = (ymax - ymin) + 1;
+
+		// Centro de Gravidade
+		//blobs[i].xc = (xmax - xmin) / 2;
+		//blobs[i].yc = (ymax - ymin) / 2;
+		blobs[i].xc = sumx / std::max(blobs[i].area, 1);
+		blobs[i].yc = sumy / std::max(blobs[i].area, 1);
+	}
+
+	return 1;
+}
+
+// Funções de validação das laranjas com base no Regulamento CEE 379/71
+// A escala do vídeo é 280px = 55mm -> 1px = 0.19643mm
+
+ /**
+ * @brief Calcula o calibre de uma laranja segundo o Regulamento CEE 379/71.
+ *
+ * O regulamento define tamanhos de 0 a 13 com base no diâmetro
+ * equatorial (máximo entre largura e altura da bounding box).
+ *
+ * @param blob Estrutura que representa o objeto detetado (largura e altura em píxeis).
+ * @return Calibre da laranja (0 a 13).
+ * Retorna -1 se o objeto não for uma laranja válida (abaixo do mínimo de 53 mm).
+ */
+int vc_orange_calibre(OVC blob)
+{
+    float px_to_mm = 55.0f / 280.0f; // 1 px = 0.19643 mm
+    int diameter_px = std::max(blob.width, blob.height);
+    float diameter_mm = diameter_px * px_to_mm;
+
+    if (diameter_mm >= 100) return 0;
+    if (diameter_mm >= 87)  return 1;
+    if (diameter_mm >= 84)  return 2;
+    if (diameter_mm >= 81)  return 3;
+    if (diameter_mm >= 77)  return 4;
+    if (diameter_mm >= 73)  return 5;
+    if (diameter_mm >= 70)  return 6; 
+    if (diameter_mm >= 67)  return 7;
+    if (diameter_mm >= 64)  return 8;
+    if (diameter_mm >= 62)  return 9;
+    if (diameter_mm >= 60)  return 10;
+    if (diameter_mm >= 58)  return 11;
+    if (diameter_mm >= 56)  return 12;
+    if (diameter_mm >= 53)  return 13;
+
+    return -1; // abaixo do mínimo (53mm) - não é uma laranja válida
+}
+
+/**
+ * @brief Calcula e valida o tamanho de uma laranja a ser analisada.
+ *
+ * Verifica se um blob tem tamanho mínimo para ser considerado laranja.
+ * O regulamento define 53 mm como diâmetro mínimo.
+ * Abaixo disso considera-se ruído ou objeto inválido.
+ *
+ * @param blob Estrutura que representa o objeto detetado.
+ * @return 1 se for uma laranja válida, 0 caso contrário.
+ */
+int vc_orange_is_valid(OVC blob)    
+{
+    float px_to_mm = 55.0f / 280.0f;
+    int diameter_px = std::max(blob.width, blob.height);
+    float diameter_mm = diameter_px * px_to_mm;
+
+    return diameter_mm >= 53.0f; // 53mm = mínimo do regulamento
 }
