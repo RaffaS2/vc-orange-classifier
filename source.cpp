@@ -141,7 +141,7 @@ int main(void)
         cv::putText(frame, str, cv::Point(20, 25),
                     cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255,255,255), 1);
 
-        str = "Laranjas na frame: " + std::to_string(frame_oranges);
+        str = "Laranjas no frame: " + std::to_string(frame_oranges);
         cv::putText(frame, str, cv::Point(20, 55),
                     cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0,0,0), 2);
         cv::putText(frame, str, cv::Point(20, 55),
