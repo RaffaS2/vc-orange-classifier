@@ -38,7 +38,7 @@ int vc_binary_blob_info(IVC *src, OVC *blobs, int nblobs);
 
 // Validação das laranjas com base no Regulamento CEE 379/71
 int vc_orange_calibre(OVC blob);
-int vc_orange_is_valid(OVC blob);
+int vc_orange_is_valid(OVC blob, int width, int height);
 
 // Funções: LEITURA E ESCRITA DE IMAGENS (PBM, PGM E PPM)
 //IVC *vc_read_image(char *filename);

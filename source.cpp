@@ -68,10 +68,10 @@ int main(void)
 
         // Segmentação: isola píxeis com cor de laranja
         // H[5°,35°]  S[45%,100%]  V[30%,100%]
-        //vc_hsv_segmentation(image_hsv, image_mask, 5, 35, 45, 100, 30, 100);
+        vc_hsv_segmentation(image_hsv, image_mask, 5, 35, 45, 100, 30, 100);
 
         // não é a melhor segmentação mas faz desaparecer a maçã
-        vc_hsv_segmentation(image_hsv, image_mask, 18, 30, 79, 100, 30, 100);
+        //vc_hsv_segmentation(image_hsv, image_mask, 18, 30, 79, 100, 30, 100);
 
         vc_binary_erosion(image_mask, image_tmp,  3);
         vc_binary_dilation(image_tmp, image_mask, 3);   
@@ -89,10 +89,14 @@ int main(void)
         if (blobs != NULL)
         {
             for (int i = 0; i < nlabels; i++)
-            {
-                // Ignora blobs abaixo do tamanho mínimo do regulamento (53mm)
-                if (!vc_orange_is_valid(blobs[i])) continue;
+            {   
+                printf("Blob %d | area=%d | bbox=%dx%d | fill=%.2f\n",
+                i, blobs[i].area, blobs[i].width, blobs[i].height,
+                (float)blobs[i].area / (float)(blobs[i].width * blobs[i].height));
 
+                // Ignora blobs abaixo do tamanho mínimo do regulamento (53mm)
+                if (!vc_orange_is_valid(blobs[i], video.width, video.height)) continue;
+    
                 frame_oranges++;
 
                 // Calcula calibre segundo regulamento CEE 379/71
@@ -107,10 +111,16 @@ int main(void)
                     cv::Point(blobs[i].x + blobs[i].width, blobs[i].y + blobs[i].height),
                     cv::Scalar(0, 255, 0), 2);
 
-                // Centróide vermelho
+                // Centróide vermelho (confirmar depois)
+                /*
                 cv::circle(frame,
                     cv::Point(blobs[i].xc, blobs[i].yc), 4,
                     cv::Scalar(0, 0, 255), -1);
+                */
+                cv::rectangle(frame,
+                cv::Point(blobs[i].xc - 3, blobs[i].yc - 3),
+                cv::Point(blobs[i].xc + 3, blobs[i].yc + 3),
+                cv::Scalar(0, 0, 255), -1);;
 
                 // Info por cima de cada laranja
                 str = "Cal:" + std::to_string(calibre) +
