@@ -174,7 +174,7 @@ int main(void)
         }
 
         // Tracking: conta as que saíram desde a frame anterior 
-        if (prev_blobs != NULL && nvalid >= 0)
+        if (prev_blobs != NULL && nvalid > 0)
         {
             total_oranges += vc_count_entered_oranges(prev_blobs, nprev_blobs, valid_blobs, nvalid, MAX_DIST);
         }

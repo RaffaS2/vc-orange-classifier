@@ -590,6 +590,7 @@
 			sumy = 0;
 
 			blobs[i].area = 0;
+			blobs[i].perimeter = 0;
 
 			for (y = 1; y<height - 1; y++)
 			{
@@ -753,13 +754,15 @@ int vc_count_entered_oranges(OVC *prev, int nprev, OVC *curr, int ncurr, float m
 /**
  * @brief Calcula a percentagem de píxeis com defeito dentro da laranja.
  *
- * Analisa a imagem BGR original dentro da elipse da bounding box.
- * Converte cada píxel para HSV e considera defeito se:
- *   - H fora do laranja (manchas verdes, castanhas, pretas)
+ * Analisa a imagem HSV dentro da elipse inscrita na bounding box.
+ * Considera defeito se:
+ *   - H fora do intervalo laranja (manchas verdes, castanhas, pretas)
  *   - V muito baixo (zonas escuras/podres)
  *   - S muito baixa (zonas esbranquiçadas/secas)
  *
- * @return Percentagem de píxeis com defeito [0, 100].
+ * @param blob Blob da laranja a analisar.
+ * @param hsv  Imagem de entrada em HSV (3 canais).
+ * @return Percentagem de píxeis com defeito [0.0, 100.0].
  */
 float vc_orange_defect_ratio(OVC blob, IVC *hsv)
 {
@@ -809,12 +812,15 @@ float vc_orange_defect_ratio(OVC blob, IVC *hsv)
 }
 
 /**
- * @brief Classifica a laranja com base na percentagem de uniformidade.
+ * @brief Classifica a laranja com base no rácio de defeito.
+ *
+ * @param defect_ratio Rácio de defeito da superfície da laranja.
+ * @return Categoria como string: "Extra", "Classe I", "Classe II" ou "Classe III".
  */
 const char* vc_orange_category(float defect_ratio)
 {
     if (defect_ratio < 0.50f) return "Extra";     // Tolerância ao ruído base das laranjas boas
-    if (defect_ratio < 1.50) return "Classe I";   // Pequenas imperfeições
+    if (defect_ratio < 1.50f) return "Classe I";   // Pequenas imperfeições
     if (defect_ratio < 3.50f) return "Classe II";  // Defeitos moderados
     return "Classe III";
 }

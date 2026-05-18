@@ -48,6 +48,7 @@ int vc_binary_blob_info(IVC *src, OVC *blobs, int nblobs);
 int vc_orange_calibre(OVC blob);
 int vc_orange_is_valid(OVC blob, int width, int height);
 
+// 
 int vc_count_entered_oranges(OVC *prev, int nprev, OVC *curr, int ncurr, float max_dist);
 
 // Funções para calcular e classificar a categoria da laranja
