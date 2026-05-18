@@ -18,6 +18,12 @@ typedef struct {
 	int label;					// Etiqueta
 } OVC;
 
+// Representa uma laranja rastreada entre frames
+typedef struct {
+    int xc, yc;    // centróide
+    int active;    // 1 = visível na frame atual
+} TrackedOrange;
+
 // Alocar e libertar uma imagem	
 IVC *vc_image_new(int width, int height, int channels, int levels);
 IVC *vc_image_free(IVC *image);
@@ -40,6 +46,7 @@ int vc_binary_blob_info(IVC *src, OVC *blobs, int nblobs);
 int vc_orange_calibre(OVC blob);
 int vc_orange_is_valid(OVC blob, int width, int height);
 
+int vc_count_exited_oranges(OVC *prev, int nprev, OVC *curr, int ncurr, float max_dist);
 // Funções: LEITURA E ESCRITA DE IMAGENS (PBM, PGM E PPM)
 //IVC *vc_read_image(char *filename);
 //int vc_write_image(char *filename, IVC *image);

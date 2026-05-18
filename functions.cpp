@@ -2,6 +2,7 @@
 	#include <string>
 	#include <cstring>
 	#include <stdlib.h>
+	#include <cmath>
 	#include "functions.h"
 
 
@@ -562,7 +563,6 @@
 	 *
 	 * @return 1 em caso de sucesso, 0 em caso de erro.
 	 */
-	int vc_binary_blob_info(IVC *src, OVC *blobs, int nblobs);
 	int vc_binary_blob_info(IVC *src, OVC *blobs, int nblobs)
 	{
 		unsigned char *data = (unsigned char *)src->data;
@@ -708,3 +708,45 @@
 
 		return 1;
 	}
+
+/**
+ * @brief Faz tracking de laranjas entre frames consecutivas.
+ *
+ * Compara os blobs da frame atual com os da frame anterior.
+ * Se um blob anterior não tem correspondência → saiu do ecrã → conta +1.
+ *
+ * @param prev       Array de blobs da frame anterior.
+ * @param nprev      Número de blobs anteriores.
+ * @param curr       Array de blobs da frame atual.
+ * @param ncurr      Número de blobs atuais.
+ * @param max_dist   Distância máxima (px) para considerar "mesmo objeto".
+ * @return           Número de laranjas que saíram nesta frame.
+ */
+int vc_count_exited_oranges(OVC *prev, int nprev, OVC *curr, int ncurr, float max_dist)
+{
+    int exited = 0;
+
+    for (int i = 0; i < nprev; i++)
+    {
+        int matched = 0;
+
+        for (int j = 0; j < ncurr; j++)
+        {
+            float dx = (float)(prev[i].xc - curr[j].xc);
+            float dy = (float)(prev[i].yc - curr[j].yc);
+            float dist = sqrtf(dx*dx + dy*dy);
+
+            if (dist < max_dist)
+            {
+                matched = 1;
+                break;
+            }
+        }
+
+        // Blob anterior sem correspondência → saiu do ecrã
+        if (!matched)
+            exited++;
+    }
+
+    return exited;
+}
