@@ -11,11 +11,13 @@ typedef struct {
 
 // Estrutura de um Blob
 typedef struct {
-	int x, y, width, height;	// Caixa Delimitadora (Bounding Box)
-	int area;					// Área
-	int xc, yc;					// Centro-de-massa
-	int perimeter;				// Perímetro
-	int label;					// Etiqueta
+    int x, y, width, height;
+    int area;
+    int xc, yc;
+    int perimeter;
+    int label;
+    float defect_ratio;   
+    int defect_measured;  // 0 = ainda não medido | 1 = valor estável, reutilizar
 } OVC;
 
 // Representa uma laranja rastreada entre frames
@@ -46,10 +48,9 @@ int vc_binary_blob_info(IVC *src, OVC *blobs, int nblobs);
 int vc_orange_calibre(OVC blob);
 int vc_orange_is_valid(OVC blob, int width, int height);
 
-int vc_count_exited_oranges(OVC *prev, int nprev, OVC *curr, int ncurr, float max_dist);
-// Funções: LEITURA E ESCRITA DE IMAGENS (PBM, PGM E PPM)
-//IVC *vc_read_image(char *filename);
-//int vc_write_image(char *filename, IVC *image);
+int vc_count_entered_oranges(OVC *prev, int nprev, OVC *curr, int ncurr, float max_dist);
 
-//int vc_image_diff(IVC *current, IVC *prev, IVC *dst);
+// Funções para calcular e classificar a categoria da laranja
+float vc_orange_defect_ratio(OVC blob, IVC *hsv);
+const char* vc_orange_category(float defect_ratio);
 

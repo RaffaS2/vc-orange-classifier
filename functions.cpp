@@ -5,7 +5,6 @@
 	#include <cmath>
 	#include "functions.h"
 
-
 	IVC *vc_image_new(int width, int height, int channels, int levels)
 	{
 		IVC *image = (IVC *) malloc(sizeof(IVC));
@@ -713,27 +712,27 @@
  * @brief Faz tracking de laranjas entre frames consecutivas.
  *
  * Compara os blobs da frame atual com os da frame anterior.
- * Se um blob anterior não tem correspondência → saiu do ecrã → conta +1.
+ * Se um blob atual não tem correspondência → entrou no ecrã → conta +1.
  *
  * @param prev       Array de blobs da frame anterior.
  * @param nprev      Número de blobs anteriores.
  * @param curr       Array de blobs da frame atual.
  * @param ncurr      Número de blobs atuais.
  * @param max_dist   Distância máxima (px) para considerar "mesmo objeto".
- * @return           Número de laranjas que saíram nesta frame.
+ * @return           Número de laranjas que entraram nesta frame.
  */
-int vc_count_exited_oranges(OVC *prev, int nprev, OVC *curr, int ncurr, float max_dist)
+int vc_count_entered_oranges(OVC *prev, int nprev, OVC *curr, int ncurr, float max_dist)
 {
-    int exited = 0;
+    int entered = 0;
 
-    for (int i = 0; i < nprev; i++)
+    for (int j = 0; j < ncurr; j++)
     {
         int matched = 0;
 
-        for (int j = 0; j < ncurr; j++)
+        for (int i = 0; i < nprev; i++)
         {
-            float dx = (float)(prev[i].xc - curr[j].xc);
-            float dy = (float)(prev[i].yc - curr[j].yc);
+            float dx = (float)(curr[j].xc - prev[i].xc);
+            float dy = (float)(curr[j].yc - prev[i].yc);
             float dist = sqrtf(dx*dx + dy*dy);
 
             if (dist < max_dist)
@@ -743,10 +742,79 @@ int vc_count_exited_oranges(OVC *prev, int nprev, OVC *curr, int ncurr, float ma
             }
         }
 
-        // Blob anterior sem correspondência → saiu do ecrã
+        // Blob atual sem correspondência no frame anterior → entrou no ecrã
         if (!matched)
-            exited++;
+            entered++;
     }
 
-    return exited;
+    return entered;
+}
+
+/**
+ * @brief Calcula a percentagem de píxeis com defeito dentro da laranja.
+ *
+ * Analisa a imagem BGR original dentro da elipse da bounding box.
+ * Converte cada píxel para HSV e considera defeito se:
+ *   - H fora do laranja (manchas verdes, castanhas, pretas)
+ *   - V muito baixo (zonas escuras/podres)
+ *   - S muito baixa (zonas esbranquiçadas/secas)
+ *
+ * @return Percentagem de píxeis com defeito [0, 100].
+ */
+float vc_orange_defect_ratio(OVC blob, IVC *hsv)
+{
+    unsigned char *data = hsv->data;
+    int bpl = hsv->bytesperline;
+
+    float cx = blob.x + blob.width  / 2.0f;
+    float cy = blob.y + blob.height / 2.0f;
+    float rx = blob.width  / 2.0f;
+    float ry = blob.height / 2.0f;
+
+    int total   = 0;
+    int defects = 0;
+
+    for (int y = blob.y; y < blob.y + blob.height; y++)
+    {
+        for (int x = blob.x; x < blob.x + blob.width; x++)
+        {
+            // Só dentro da elipse inscrita
+            float dx = (x - cx) / rx;
+            float dy = (y - cy) / ry;
+            if (dx*dx + dy*dy > 1.0f) continue;
+
+            total++;
+
+            // Lê HSV já convertido por vc_bgr_to_hsv
+            int pos = y * bpl + x * 3;
+            float h = data[pos + 0] * (360.0f / 255.0f);
+            float s = data[pos + 1] / 255.0f;
+            float v = data[pos + 2] / 255.0f;
+
+            // Classifica defeito
+            bool bad_h = (h < 8.0f || h > 38.0f);
+            bool bad_s = (s < 0.35f);
+            bool bad_v = (v < 0.28f);
+
+            if (bad_h || bad_s || bad_v)
+                defects++;
+        }
+    }
+
+    printf("defect_ratio=%.1f%% | total=%d | defects=%d\n",
+           ((float)defects / total) * 100.0f, total, defects);
+
+    if (total == 0) return 0.0f;
+    return ((float)defects / (float)total) * 100.0f;
+}
+
+/**
+ * @brief Classifica a laranja com base na percentagem de uniformidade.
+ */
+const char* vc_orange_category(float defect_ratio)
+{
+    if (defect_ratio < 0.50f) return "Extra";     // Tolerância ao ruído base das laranjas boas
+    if (defect_ratio < 1.50) return "Classe I";   // Pequenas imperfeições
+    if (defect_ratio < 3.50f) return "Classe II";  // Defeitos moderados
+    return "Classe III";
 }

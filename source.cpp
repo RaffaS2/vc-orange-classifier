@@ -7,8 +7,7 @@
 #include <cstring>
 #include <algorithm>
 #include "functions.h"
-//g++ source2.cpp -o programa $(pkg-config --cflags --libs opencv4)
-
+//g++ source.cpp functions.cpp -o programa $(pkg-config --cflags --libs opencv4)
 
 int main(void)
 {
@@ -40,7 +39,7 @@ int main(void)
     video.height       = (int)capture.get(cv::CAP_PROP_FRAME_HEIGHT);
 
     cv::namedWindow("VC - ORIGINAL",   cv::WINDOW_AUTOSIZE);
-    cv::namedWindow("VC - MASCARA", cv::WINDOW_AUTOSIZE); // debug
+    //cv::namedWindow("VC - MASCARA", cv::WINDOW_AUTOSIZE); // debug
 
     // Aloca imagens IVC uma única vez, fora do loop 
     IVC *image_bgr  = vc_image_new(video.width, video.height, 3, 255);
@@ -78,6 +77,7 @@ int main(void)
         // não é a melhor segmentação mas faz desaparecer a maçã
         //vc_hsv_segmentation(image_hsv, image_mask, 18, 30, 79, 100, 30, 100);
 
+        // Operadores Morfológicos: Abertura
         vc_binary_erosion(image_mask, image_tmp,  3);
         vc_binary_dilation(image_tmp, image_mask, 3);   
 
@@ -100,16 +100,44 @@ int main(void)
 
             for (int i = 0; i < nlabels; i++)
             {
-                printf("Blob %d | area=%d | bbox=%dx%d | fill=%.2f\n",
+                /*printf("Blob %d | area=%d | bbox=%dx%d | fill=%.2f\n",
                 i, blobs[i].area, blobs[i].width, blobs[i].height,
-                (float)blobs[i].area / (float)(blobs[i].width * blobs[i].height));
+                (float)blobs[i].area / (float)(blobs[i].width * blobs[i].height));*/ //debug
 
-                // Ignora blobs abaixo do tamanho mínimo do regulamento (53mm)
+                //Verifica calibre mínimo de 53 mm, fill ratio ≥ 0,70 e visibilidade completa da bounding box, rejeitando objetos com buracos ou cortados.
                 if (!vc_orange_is_valid(blobs[i], video.width, video.height)) continue;
+
+                // 0 = ainda não medido o defeito
+                blobs[i].defect_measured = 0;
+
+                // Verifica se este blob já foi medido numa frame anterior:
+                // se sim, reutiliza o valor — evita variações entre frames/*
+                for (int p = 0; p < nprev_blobs; p++)
+                {
+                    float dx = (float)(blobs[i].xc - prev_blobs[p].xc);
+                    float dy = (float)(blobs[i].yc - prev_blobs[p].yc);
+                    if (sqrtf(dx*dx + dy*dy) < MAX_DIST && prev_blobs[p].defect_measured)
+                    {
+                        // Reutiliza medição anterior — não recalcula
+                        blobs[i].defect_ratio    = prev_blobs[p].defect_ratio;
+                        blobs[i].defect_measured = 1;
+                        break;
+                    }
+                }
+
+                // Só mede defeitos na primeira vez que a bounding box aparece completa no ecrã
+                // (vc_orange_is_valid já garante que está completamente visível)
+                if (!blobs[i].defect_measured)
+                {
+                    blobs[i].defect_ratio    = vc_orange_defect_ratio(blobs[i], image_hsv);
+                    blobs[i].defect_measured = 1;
+                }
 
                 // Calcula calibre segundo regulamento CEE 379/71
                 int calibre = vc_orange_calibre(blobs[i]);
 
+                const char *category = vc_orange_category(blobs[i].defect_ratio);
+            
                 // Diâmetro em mm para mostrar no HUD
                 float diameter_mm = MAX(blobs[i].width, blobs[i].height) * (55.0f / 280.0f);
 
@@ -119,22 +147,18 @@ int main(void)
                     cv::Point(blobs[i].x + blobs[i].width, blobs[i].y + blobs[i].height),
                     cv::Scalar(0, 255, 0), 2);
 
-                // Centróide vermelho (confirmar depois)
-                /*
-                cv::circle(frame,
-                    cv::Point(blobs[i].xc, blobs[i].yc), 4,
-                    cv::Scalar(0, 0, 255), -1);
-                */
+                // Centro vermelho retangular
                 cv::rectangle(frame,
                 cv::Point(blobs[i].xc - 3, blobs[i].yc - 3),
                 cv::Point(blobs[i].xc + 3, blobs[i].yc + 3),
                 cv::Scalar(0, 0, 255), -1);;
-
+                
                 // Info por cima de cada laranja
                 str = "Cal:" + std::to_string(calibre) +
                       " D:"  + std::to_string((int)diameter_mm) + "mm" +
                       " A:"  + std::to_string(blobs[i].area)    +
-                      " P:"  + std::to_string(blobs[i].perimeter);
+                      " P:"  + std::to_string(blobs[i].perimeter) +
+                      " C:" + std::string(category);
                 cv::putText(frame, str,
                             cv::Point(blobs[i].x, blobs[i].y - 5),
                             cv::FONT_HERSHEY_SIMPLEX, 0.45,
@@ -143,7 +167,6 @@ int main(void)
                             cv::Point(blobs[i].x, blobs[i].y - 5),
                             cv::FONT_HERSHEY_SIMPLEX, 0.45,
                             cv::Scalar(255, 255, 255), 1);
-
                 valid_blobs[nvalid++] = blobs[i];   // guarda blob válido
             }
 
@@ -153,7 +176,7 @@ int main(void)
         // Tracking: conta as que saíram desde a frame anterior 
         if (prev_blobs != NULL && nvalid >= 0)
         {
-            total_oranges += vc_count_exited_oranges(prev_blobs, nprev_blobs, valid_blobs, nvalid, MAX_DIST);
+            total_oranges += vc_count_entered_oranges(prev_blobs, nprev_blobs, valid_blobs, nvalid, MAX_DIST);
         }
 
         // Atualiza estado anterior
@@ -164,7 +187,7 @@ int main(void)
         nprev_blobs = nvalid;
         valid_blobs = NULL;          // não libertar aqui — passa para prev
 
-         // HUD - informação básica sobre o vídeo (canto superior esquerdo)
+        // HUD - informação básica sobre o vídeo (canto superior esquerdo)
         str = "Frame: " + std::to_string(video.nframe) + "/" +
               std::to_string(video.ntotalframes);
         cv::putText(frame, str, cv::Point(20, 25),
@@ -185,8 +208,8 @@ int main(void)
                     cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255,255,255), 1);
 
         // Máscara para debug
-        cv::Mat mask_mat(video.height, video.width, CV_8UC1, image_mask->data);
-        cv::imshow("VC - MASCARA", mask_mat);
+        //cv::Mat mask_mat(video.height, video.width, CV_8UC1, image_mask->data);
+        //cv::imshow("VC - MASCARA", mask_mat);
         cv::imshow("VC - ORIGINAL",   frame);
         key = cv::waitKey(1000 / video.fps);
     }
