@@ -713,7 +713,7 @@
  * @brief Faz tracking de laranjas entre frames consecutivas.
  *
  * Compara os blobs da frame atual com os da frame anterior.
- * Se um blob atual não tem correspondência → entrou no ecrã → conta +1.
+ * Se um blob atual não tem correspondência -> entrou no ecrã -> conta +1.
  *
  * @param prev       Array de blobs da frame anterior.
  * @param nprev      Número de blobs anteriores.
@@ -743,7 +743,7 @@ int vc_count_entered_oranges(OVC *prev, int nprev, OVC *curr, int ncurr, float m
             }
         }
 
-        // Blob atual sem correspondência no frame anterior → entrou no ecrã
+        // Blob atual sem correspondência no frame anterior -> entrou no ecrã
         if (!matched)
             entered++;
     }
