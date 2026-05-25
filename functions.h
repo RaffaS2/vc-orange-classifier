@@ -20,12 +20,6 @@ typedef struct {
     int defect_measured;  // 0 = ainda não medido | 1 = valor estável, reutilizar
 } OVC;
 
-// Representa uma laranja rastreada entre frames
-typedef struct {
-    int xc, yc;    // centróide
-    int active;    // 1 = visível na frame atual
-} TrackedOrange;
-
 // Alocar e libertar uma imagem	
 IVC *vc_image_new(int width, int height, int channels, int levels);
 IVC *vc_image_free(IVC *image);
